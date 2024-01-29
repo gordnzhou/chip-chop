@@ -2,6 +2,12 @@ use crate::components::Display;
 use crate::components::Keypad;
 use crate::components::Sound;
 
+const ROM_PATH: &str = "";
+const FONT_LOAD_START: usize = 0x050;
+const ROM_LOAD_START: usize = 0x200;
+
+const MEMORY_SIZE: usize = 4096;
+const REGISTERS_SIZE: usize = 16;
 
 const FONTS: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -22,15 +28,12 @@ const FONTS: [u8; 80] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 ];
 
-const FONT_LOAD_START: usize = 0x050;
-const ROM_LOAD_START: usize = 0x200;
-
 pub struct Cpu {
-    display: Display,
+    pub display: Display,
     keypad: Keypad,
     sound: Sound,
-    memory: [u8; 4096],
-    registers: [u8; 16],
+    memory: [u8; MEMORY_SIZE],
+    registers: [u8; REGISTERS_SIZE],
     pc: usize,
     i: usize,
     stack: Vec<u16>,
@@ -41,14 +44,14 @@ pub struct Cpu {
 
 impl Cpu {
     pub fn new(display: Display, keypad: Keypad, sound: Sound) -> Self {
-        let mut memory: [u8; 4096] = [0; 4096];
-        let mut registers: [u8; 16] = [0; 16];
+        let memory: [u8; MEMORY_SIZE] = [0; MEMORY_SIZE];
+        let registers: [u8; REGISTERS_SIZE] = [0; REGISTERS_SIZE];
         let pc: usize = ROM_LOAD_START;
         let i: usize = 0;
-        let mut stack: Vec<u16> = Vec::new();
+        let stack: Vec<u16> = Vec::new();
         let delay_timer: u8 = 0;
         let sound_timer: u8 = 0;
-        let paused = false;
+        let paused: bool = false;
 
         Cpu { 
             display, 
@@ -65,19 +68,29 @@ impl Cpu {
         }
     }
 
-    pub fn load_fonts(mut self) {
+    pub fn init_load(&mut self) {
+        self.load_fonts();
+        self.load_rom();
+    }
+
+    fn load_fonts(&mut self) {
         let start = FONT_LOAD_START;
-        let end = FONT_LOAD_START + 80;
+        let end = FONT_LOAD_START + FONTS.len();
         for (i, byte) in (start..end).zip(FONTS) {
             self.memory[i] = byte;
         }
     }
 
-    pub fn load_rom(mut self) {
+    fn load_rom(&mut self) {
 
+        Cpu::read_rom_from_file(ROM_PATH)
     }
 
-    pub fn update_timers(mut self) {
+    fn read_rom_from_file(path: &str) {
+        
+    }
+
+    pub fn update_timers(&mut self) {
         if self.delay_timer > 0 {
             self.delay_timer -= 1;
         }
@@ -86,18 +99,19 @@ impl Cpu {
         }
     }
 
-    pub fn cycle(mut self) {
-        
+    pub fn cycle(&mut self) {
+        let instr = self.fetch();
+        self.decode_execute(instr);
     }
 
-    fn fetch(self) -> u16 {
+    fn fetch(&mut self) -> u16 {
         let i1: u8 = self.memory[self.pc];
         let i2: u8 = self.memory[self.pc + 1];
 
         ((i1 as u16) << 8) + i2 as u16
     }
 
-    fn decode_execute(mut self, instr: u16) {
+    fn decode_execute(&mut self, instr: u16) {
         // x and y are used for register lookup
         let x: usize = (instr & 0x0F00) as usize;
         let y: usize = (instr & 0x00F0) as usize;
@@ -124,26 +138,35 @@ impl Cpu {
             0xA => self.index_set(nnn),
             0xB => {}
             0xC => {}
-            0xD => self.display.draw(),
+            0xD => self.draw(x, y, n),
             0xE => {}
             0xF => {}
             _ => {}
         }
     }
 
-    fn jump(mut self, address: usize) {
+    fn jump(&mut self, address: usize) {
         self.pc = address;
     }
 
-    fn register_set(mut self, address: usize, value: u8) {
+    fn register_set(&mut self, address: usize, value: u8) {
         self.registers[address] = value;
     }
 
-    fn register_add(mut self, address: usize, value: u8) {
+    fn register_add(&mut self, address: usize, value: u8) {
         self.registers[address] += value;
     }
 
-    fn index_set(mut self, value: usize) {
+    fn index_set(&mut self, value: usize) {
         self.i = value;
+    }
+
+    fn draw(&mut self, x: usize, y: usize, height: u8) {
+        let x_coord = self.registers[x];
+        let y_coord = self.registers[y];
+
+        let sprite = self.memory[self.i];
+
+        // change display
     }
 }  
