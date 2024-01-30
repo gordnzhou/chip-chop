@@ -5,7 +5,8 @@ use crate::components::Display;
 use crate::components::Keypad;
 use crate::components::Sound;
 
-const ROM_PATH: &str = "../roms/IBM Logo.ch8";
+// configurable
+const ROM_PATH: &str = "src/roms/IBM Logo.ch8";
 const FONT_LOAD_START: usize = 0x050;
 const ROM_LOAD_START: usize = 0x200;
 
@@ -120,6 +121,7 @@ impl Cpu {
     }
 
     pub fn cycle(&mut self) {
+        // implement pausing
         let instr = self.fetch();
         self.decode_execute(instr);
     }
@@ -128,39 +130,45 @@ impl Cpu {
         let i1: u8 = self.memory[self.pc];
         let i2: u8 = self.memory[self.pc + 1];
 
+        self.pc += 2;
+
         ((i1 as u16) << 8) + i2 as u16
     }
 
     fn decode_execute(&mut self, instr: u16) {
         // x and y are used for register lookup
-        let x: usize = (instr & 0x0F00) as usize;
-        let y: usize = (instr & 0x00F0) as usize;
+        let x: usize = ((instr & 0x0F00) >> 8) as usize;
+        let y: usize = ((instr & 0x00F0) >> 4) as usize;
 
         let n: u8 = (instr & 0x000F) as u8;
         let nn: u8 = (instr & 0x00FF) as u8;
         let nnn: usize = (instr & 0x0FFF) as usize; // used as 12-bit memory address
 
-        match instr & 0xF000 {
-            0x0000 => {
+        if instr != 0 {
+            println!("Instruction: {:04x}, Type: {:01x}", instr, (instr & 0xF000) >> 12);
+        }
+        
+        match (instr & 0xF000) >> 12 {
+            0x0 => {
                 if nnn == 0x0E0 {
                     self.display.clear()
                 }
             },
-            0x1000 => self.jump(nnn),
-            0x2000 => {}
-            0x3000 => {}
-            0x4000 => {}
-            0x5000 => {}
-            0x6000 => self.register_set(x, nn),
-            0x7000 => self.register_add(x, nn),
-            0x8000 => {}
-            0x9000 => {}
-            0xA000 => self.index_set(nnn),
-            0xB000 => {}
-            0xC000 => {}
-            0xD000 => self.draw(x, y, n),
-            0xE000 => {}
-            0xF000 => {}
+            0x1 => self.jump(nnn),
+            0x2 => {}
+            0x3 => {}
+            0x4 => {}
+            0x5 => {}
+            0x6 => self.register_set(x, nn),
+            0x7 => self.register_add(x, nn),
+            0x8 => {}
+            0x9 => {}
+            0xa => self.index_set(nnn),
+            0xb => {}
+            0xc => {}
+            0xd => self.draw(x, y, n),
+            0xe => {}
+            0xf => {}
             _ => {}
         }
     }
@@ -182,10 +190,13 @@ impl Cpu {
     }
 
     fn draw(&mut self, x: usize, y: usize, height: u8) {
+
         let x_coord = self.registers[x] as usize;
         let y_coord = self.registers[y] as usize;
 
         self.registers[0xF] = 0;
+
+        println!("Drawing sprite at I ({:#04x}) of height {} at coords ({}, {})", self.i, height, x_coord, y_coord);
 
         for row in 0..height as usize {
             let sprite = self.memory[self.i + row];
@@ -194,11 +205,11 @@ impl Cpu {
                 let x = x_coord + col;
                 let y = y_coord + row;
 
-                if sprite & (1 << (7 - col)) == 1 {
-                    if self.display.get_pixel(x, y) {
+                if (sprite & (1 << (7 - col))) > 0 {
+                    self.display.flip_pixel(x, y);
+                    if !self.display.get_pixel(x, y) {
                         self.registers[0xF] = 1;
                     }
-                    self.display.flip_pixel(x, y);
                 }
             }
         }
