@@ -1,8 +1,11 @@
+use std::fs::File;
+use std::io::{self, Read};
+
 use crate::components::Display;
 use crate::components::Keypad;
 use crate::components::Sound;
 
-const ROM_PATH: &str = "";
+const ROM_PATH: &str = "../roms/IBM Logo.ch8";
 const FONT_LOAD_START: usize = 0x050;
 const ROM_LOAD_START: usize = 0x200;
 
@@ -82,12 +85,29 @@ impl Cpu {
     }
 
     fn load_rom(&mut self) {
+        match Cpu::read_rom_from_file(ROM_PATH) {
+            Ok(rom_data) => {
+                println!("Sucessfully read ROM.");
+                println!("ROM size: {} bytes", rom_data.len());
+                println!("First 16 bytes: {:?}", &rom_data[..16]);
 
-        Cpu::read_rom_from_file(ROM_PATH)
+                for i in 0..rom_data.len() {
+                    self.memory[ROM_LOAD_START + i] = rom_data[i];
+                }
+            }
+            Err(err) => {
+                eprintln!("Error reading ROM file: {}", err);
+            }
+        }
     }
 
-    fn read_rom_from_file(path: &str) {
-        
+    fn read_rom_from_file(file_path: &str) -> io::Result<Vec<u8>> {
+        let mut file = File::open(file_path)?;
+
+        let mut rom_data = Vec::new();
+        file.read_to_end(&mut rom_data)?;
+
+        Ok(rom_data)
     }
 
     pub fn update_timers(&mut self) {
@@ -121,26 +141,26 @@ impl Cpu {
         let nnn: usize = (instr & 0x0FFF) as usize; // used as 12-bit memory address
 
         match instr & 0xF000 {
-            0x0 => {
+            0x0000 => {
                 if nnn == 0x0E0 {
                     self.display.clear()
                 }
             },
-            0x1 => self.jump(nnn),
-            0x2 => {}
-            0x3 => {}
-            0x4 => {}
-            0x5 => {}
-            0x6 => self.register_set(x, nn),
-            0x7 => self.register_add(x, nn),
-            0x8 => {}
-            0x9 => {}
-            0xA => self.index_set(nnn),
-            0xB => {}
-            0xC => {}
-            0xD => self.draw(x, y, n),
-            0xE => {}
-            0xF => {}
+            0x1000 => self.jump(nnn),
+            0x2000 => {}
+            0x3000 => {}
+            0x4000 => {}
+            0x5000 => {}
+            0x6000 => self.register_set(x, nn),
+            0x7000 => self.register_add(x, nn),
+            0x8000 => {}
+            0x9000 => {}
+            0xA000 => self.index_set(nnn),
+            0xB000 => {}
+            0xC000 => {}
+            0xD000 => self.draw(x, y, n),
+            0xE000 => {}
+            0xF000 => {}
             _ => {}
         }
     }
@@ -162,11 +182,25 @@ impl Cpu {
     }
 
     fn draw(&mut self, x: usize, y: usize, height: u8) {
-        let x_coord = self.registers[x];
-        let y_coord = self.registers[y];
+        let x_coord = self.registers[x] as usize;
+        let y_coord = self.registers[y] as usize;
 
-        let sprite = self.memory[self.i];
+        self.registers[0xF] = 0;
 
-        // change display
+        for row in 0..height as usize {
+            let sprite = self.memory[self.i + row];
+
+            for col in 0..8 as usize {
+                let x = x_coord + col;
+                let y = y_coord + row;
+
+                if sprite & (1 << (7 - col)) == 1 {
+                    if self.display.get_pixel(x, y) {
+                        self.registers[0xF] = 1;
+                    }
+                    self.display.flip_pixel(x, y);
+                }
+            }
+        }
     }
 }  
