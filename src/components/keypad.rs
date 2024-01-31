@@ -1,7 +1,8 @@
 use sdl2::{keyboard::Keycode, EventPump};
 use sdl2::event::{Event, WindowEvent};
 
-use crate::config::KEYMAPPINGS;
+use crate::emulator::EmulatorState;
+use crate::config::{KEYMAPPINGS, PAUSE_KEY};
 
 pub struct Keypad {
     pub pressed: [bool; 16],
@@ -18,13 +19,17 @@ impl Keypad {
         self.pressed[key]
     }
 
-    pub fn check_inputs(&mut self) -> bool {
+    pub fn check_inputs(&mut self) -> EmulatorState {
         for event in self.event_pump.poll_iter() {
             match event {
                 Event::Quit { .. } | Event::KeyDown { 
                     keycode: Some(Keycode::Escape), ..
-                } => return false,
+                } => return EmulatorState::Stopped,
                 Event::KeyDown { keycode: Some(key), repeat, ..} => {
+                    if key == PAUSE_KEY {
+                        return EmulatorState::Paused
+                    }
+                    
                     if !repeat {
                         for i in 0..16 {
                             if KEYMAPPINGS[i] == key {
@@ -41,11 +46,11 @@ impl Keypad {
                     }
                 }
                 Event::Window { win_event: WindowEvent::Close, .. } => {
-                    return false;
+                    return EmulatorState::Stopped;
                 }
                 _ => {}
             }
         }
-        true
+        EmulatorState::Playing
     }
 }

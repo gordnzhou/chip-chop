@@ -1,14 +1,12 @@
 use sdl2::AudioSubsystem;
 use sdl2::audio::{AudioCallback, AudioSpecDesired, AudioDevice};
 
-use crate::config::SOUND_VOLUME;
-
 pub struct Sound {
-    device: AudioDevice<SquareWave>
+    device: AudioDevice<SquareWave>,
 }
 
 impl Sound {
-    pub fn new(audio_subsystem: AudioSubsystem) -> Self {
+    pub fn new(audio_subsystem: AudioSubsystem, sound_volume: f32) -> Self {
         let desired_spec = AudioSpecDesired {
             freq: Some(44100),
             channels: Some(1),
@@ -18,7 +16,7 @@ impl Sound {
             SquareWave {
                 phase_inc: 440.0 / spec.freq as f32,
                 phase: 0.0,
-                volume: SOUND_VOLUME,
+                volume: sound_volume,
             }
         }).unwrap();
 

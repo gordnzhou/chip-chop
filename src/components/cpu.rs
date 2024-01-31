@@ -4,7 +4,7 @@ use std::io::{self, Read};
 use rand::Rng;
 
 use crate::components::{Display, Keypad, Sound};
-use crate::config::{ROM_PATH, FONT_LOAD_START, ROM_LOAD_START, USE_NEW, USE_NEW_LOAD};
+use crate::config::{FONT_LOAD_START, ROM_LOAD_START, USE_NEW, USE_NEW_LOAD};
 
 const MEMORY_SIZE: usize = 4096;
 const REGISTERS_SIZE: usize = 16;
@@ -65,9 +65,9 @@ impl Cpu {
         }
     }
 
-    pub fn init_load(&mut self) {
+    pub fn init_load(&mut self, rom_path: &str) {
         self.load_fonts();
-        self.load_rom();
+        self.load_rom(rom_path);
     }
 
     fn load_fonts(&mut self) {
@@ -80,8 +80,8 @@ impl Cpu {
         println!("Loaded fonts to memory address {:#06x}", FONT_LOAD_START);
     }
 
-    fn load_rom(&mut self) {
-        match Cpu::read_rom_from_file(ROM_PATH) {
+    fn load_rom(&mut self, rom_path: &str) {
+        match Cpu::read_rom_from_file(rom_path) {
             Ok(rom_data) => {
                 for i in 0..rom_data.len() {
                     self.memory[ROM_LOAD_START + i] = rom_data[i];
@@ -286,7 +286,7 @@ impl Cpu {
             self.registers[0xF] = 1;
         }
 
-        self.registers[address] = sum as u8;
+        self.register_set(address, sum as u8);
     }
 
     fn register_sub(&mut self, address: usize, a: u8, b: u8) {
@@ -297,7 +297,7 @@ impl Cpu {
             self.registers[0xF] = 1;
         }
 
-        self.registers[address] = a.wrapping_sub(b);
+        self.register_set(address, a.wrapping_sub(b));
     }
 
     fn load_memory_from_registers(&mut self, end: usize) {
@@ -326,7 +326,7 @@ impl Cpu {
         println!("Setting register V{:01x} to random", address);
 
         let mut rng = rand::thread_rng();
-        let r = rng.gen_range(0..=value);
+        let r = rng.gen_range(0..=0xFF);
 
         self.registers[address] = value & r;
     }

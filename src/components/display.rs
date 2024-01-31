@@ -55,7 +55,7 @@ impl Display {
         self.pixels[y % HEIGHT][x % WIDTH] ^= true;
     }
 
-    pub fn render_(&mut self) {
+    pub fn render_canvas(&mut self) {
         self.canvas.present();
     }
 }

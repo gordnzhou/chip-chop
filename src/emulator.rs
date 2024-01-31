@@ -10,26 +10,34 @@ use crate::config::{CPU_HZ, DISPLAY_HZ};
 pub const WIDTH: usize = 64;
 pub const HEIGHT: usize = 32;
 
+pub enum EmulatorState {
+    Playing,
+    Paused,
+    Stopped,
+}
+
 pub struct Emulator {
     cpu: Cpu,
     speed: f32,
+    emulator_state: EmulatorState,
 }
 
 impl Emulator {
-    pub fn init(speed: f32, scale: i32) -> Result<Self, String> {
+    pub fn init(speed: f32, scale: i32, sound_volume: f32, rom_path: &str) -> Result<Self, String> {
         let sdl_context: Sdl = sdl2::init()?;
         let video_subsystem = sdl_context.video()?;
         let audio_subsystem = sdl_context.audio()?;
         let event_pump = sdl_context.event_pump()?;
         let window = Emulator::build_window(video_subsystem, scale as u32)?;
 
+        let emulator_state: EmulatorState = EmulatorState::Playing;
         let display: Display = Display::new(window, scale)?;
         let keypad: Keypad = Keypad::new(event_pump);
-        let sound: Sound = Sound::new(audio_subsystem);
+        let sound: Sound = Sound::new(audio_subsystem, sound_volume);
         let mut cpu: Cpu = Cpu::new(display, keypad, sound);
-        cpu.init_load();
+        cpu.init_load(rom_path);
 
-        Ok(Emulator { cpu, speed })
+        Ok(Emulator { cpu, speed, emulator_state})
     }
 
     pub fn build_window(video_subsystem: VideoSubsystem, scale: u32) -> Result<Window, String> {
@@ -54,10 +62,20 @@ impl Emulator {
         let cpu_delta_t = 1000000.0 / (CPU_HZ as f32 * self.speed);
         let display_delta_t = 1000000.0 / (DISPLAY_HZ as f32 * self.speed);
 
-        loop {
-            if !self.cpu.keypad.check_inputs() {
-                break;
+        'playing: loop {
+            match self.emulator_state {
+                EmulatorState::Stopped => break 'playing,
+                EmulatorState::Paused => {
+                    match self.cpu.keypad.check_inputs() {
+                        EmulatorState::Paused => { self.emulator_state = EmulatorState::Playing }
+                        EmulatorState::Stopped => break 'playing,
+                        _ => {}
+                    }
+                    continue 'playing;
+                }
+                _ => self.emulator_state = self.cpu.keypad.check_inputs()
             }
+
 
             // run CPU cycle at CPU_HZ per second
             if last_cpu.elapsed() >= Duration::from_micros(cpu_delta_t as u64) {
