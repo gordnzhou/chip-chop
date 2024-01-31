@@ -1,14 +1,10 @@
 use std::fs::File;
 use std::io::{self, Read};
 
-use crate::components::Display;
-use crate::components::Keypad;
-use crate::components::Sound;
+use rand::Rng;
 
-// configurable
-const ROM_PATH: &str = "src/roms/IBM Logo.ch8";
-const FONT_LOAD_START: usize = 0x050;
-const ROM_LOAD_START: usize = 0x200;
+use crate::components::{Display, Keypad, Sound};
+use crate::config::{ROM_PATH, FONT_LOAD_START, ROM_LOAD_START, USE_NEW, USE_NEW_LOAD};
 
 const MEMORY_SIZE: usize = 4096;
 const REGISTERS_SIZE: usize = 16;
@@ -40,10 +36,9 @@ pub struct Cpu {
     registers: [u8; REGISTERS_SIZE],
     pc: usize,
     i: usize,
-    stack: Vec<u16>,
+    stack: Vec<usize>,
     delay_timer: u8,
     sound_timer: u8,
-    paused: bool,
 }
 
 impl Cpu {
@@ -52,10 +47,9 @@ impl Cpu {
         let registers: [u8; REGISTERS_SIZE] = [0; REGISTERS_SIZE];
         let pc: usize = ROM_LOAD_START;
         let i: usize = 0;
-        let stack: Vec<u16> = Vec::new();
+        let stack: Vec<usize> = Vec::new();
         let delay_timer: u8 = 0;
         let sound_timer: u8 = 0;
-        let paused: bool = false;
 
         Cpu { 
             display, 
@@ -68,7 +62,6 @@ impl Cpu {
             stack, 
             delay_timer, 
             sound_timer,
-            paused,
         }
     }
 
@@ -115,13 +108,17 @@ impl Cpu {
         if self.delay_timer > 0 {
             self.delay_timer -= 1;
         }
+
         if self.sound_timer > 0 {
             self.sound_timer -= 1;
+
+            if self.sound_timer == 0 {
+                self.sound.stop_sound();
+            }
         }
     }
 
     pub fn cycle(&mut self) {
-        // implement pausing
         let instr = self.fetch();
         self.decode_execute(instr);
     }
@@ -140,6 +137,9 @@ impl Cpu {
         let x: usize = ((instr & 0x0F00) >> 8) as usize;
         let y: usize = ((instr & 0x00F0) >> 4) as usize;
 
+        let vx: u8 = self.registers[x];
+        let vy: u8 = self.registers[y];
+
         let n: u8 = (instr & 0x000F) as u8;
         let nn: u8 = (instr & 0x00FF) as u8;
         let nnn: usize = (instr & 0x0FFF) as usize; // used as 12-bit memory address
@@ -150,25 +150,87 @@ impl Cpu {
         
         match (instr & 0xF000) >> 12 {
             0x0 => {
-                if nnn == 0x0E0 {
-                    self.display.clear()
+                match nnn {
+                    0x0E0 => self.display.clear(),
+                    0x0EE => self.pop_subroutine(),
+                    _ => {}
                 }
             },
             0x1 => self.jump(nnn),
-            0x2 => {}
-            0x3 => {}
-            0x4 => {}
-            0x5 => {}
+            0x2 => self.push_subroutine(nnn),
+            0x3 => self.skip_if_equal(vx, nn),
+            0x4 => self.skip_if_not_equal(vx, nn),
+            0x5 => self.skip_if_equal(vx, vy),
             0x6 => self.register_set(x, nn),
-            0x7 => self.register_add(x, nn),
-            0x8 => {}
-            0x9 => {}
+            0x7 => self.register_set(x, vx + n),
+            0x8 => {
+
+                match n {
+                    0x0 => self.register_set(x, vy),
+                    0x1 => self.register_set(x, vx | vy),
+                    0x2 => self.register_set(x, vx & vy),
+                    0x3 => self.register_set(x, vx ^ vy),
+                    0x4 => self.register_add(x, vx as u16, vy as u16),
+                    0x5 => self.register_sub(x, vx, vy),
+                    0x6 => {
+                        if USE_NEW {
+                            self.register_set(x, vy);
+                        }
+                        self.shift_right(x);
+                    },
+                    0x7 => self.register_sub(x, vy, vx),
+                    0xE => {
+                        if USE_NEW {
+                            self.register_set(x, vy);
+                        }
+                        self.shift_left(x);
+                    },
+                    _ => {}
+                }
+            }
+            0x9 => self.skip_if_not_equal(vx, vy),
             0xa => self.index_set(nnn),
-            0xb => {}
-            0xc => {}
+            0xb => {
+                if USE_NEW {
+                    self.jump(nnn + vx as usize);
+                }
+                else {
+                    self.jump(nnn + self.registers[0x0] as usize);
+                }
+            },
+            0xc => self.set_random(x, nn),
             0xd => self.draw(x, y, n),
-            0xe => {}
-            0xf => {}
+            0xe => {
+                match nn {
+                    0x9E => self.skip_if_pressed(vx as usize),
+                    0xA1 => self.skip_if_not_pressed(vx as usize),
+                    _ => {}
+                }
+            }
+            0xf => {
+                match nn {
+                    0x07 => self.register_set(x, self.delay_timer),
+                    0x0A => self.wait_for_key(x),
+                    0x15 => self.set_delay_timer(vx),
+                    0x18 => self.set_sound_timer(vx),
+                    0x1E => self.index_set(self.i + vx as usize),
+                    0x29 => self.index_set(FONT_LOAD_START + (vx * 5) as usize),
+                    0x33 => self.store_decimal_digits(vx),
+                    0x55 => {
+                        if !USE_NEW_LOAD {
+                            self.i += x + 1;
+                        }
+                        self.load_memory_from_registers(x);
+                    },
+                    0x65 => {
+                        if !USE_NEW_LOAD {
+                            self.i += x + 1;
+                        }
+                        self.load_registers_from_memory(x);
+                    },
+                    _ => {}
+                }
+            }
             _ => {}
         }
     }
@@ -177,12 +239,118 @@ impl Cpu {
         self.pc = address;
     }
 
+    fn load_memory_from_registers(&mut self, end: usize) {
+        for reg_index in 0..=end {
+            self.memory[self.i + reg_index] = self.registers[reg_index];
+        }
+    }
+    
+    fn load_registers_from_memory(&mut self, end: usize) {
+        for reg_index in 0..=end {
+            self.registers[reg_index] = self.memory[self.i + reg_index];
+        }
+    }
+
+    fn store_decimal_digits(&mut self, value: u8) {
+        self.memory[self.i] = value / 100;
+        self.memory[self.i + 1] = (value % 100) / 10;
+        self.memory[self.i + 2] = value % 10;
+    }
+
+    fn wait_for_key(&mut self, address: usize) {
+        for i in 0..0xF {
+            if self.keypad.is_pressed(i) {
+                self.registers[address] = i as u8;
+                return
+            }
+        }
+        
+        self.pc -= 2;
+    }
+
+    fn set_random(&mut self, address: usize, value: u8) {
+        let mut rng = rand::thread_rng();
+        let r = rng.gen_range(0..=value);
+
+        self.registers[address] = value & r;
+    }
+
+    fn set_delay_timer(&mut self, value: u8) {
+        self.delay_timer = value;
+    }
+
+    fn set_sound_timer(&mut self, value: u8) {
+        self.sound_timer = value;
+    }
+
+    fn skip_if_equal(&mut self, a: u8, b: u8) {
+        if a == b {
+            self.pc += 2;
+        }
+    }
+
+    fn skip_if_not_equal(&mut self, a: u8, b: u8) {
+        if a != b {
+            self.pc += 2;
+        }
+    }
+
+    fn skip_if_pressed(&mut self, key: usize) {
+        if self.keypad.is_pressed(key) {
+            self.pc += 2;
+        }
+    }
+
+    fn skip_if_not_pressed(&mut self, key: usize) {
+        if !self.keypad.is_pressed(key) {
+            self.pc += 2;
+        }
+    }
+
+    fn shift_left(&mut self, address: usize) {
+        self.registers[0xF] = self.registers[address] & 0x80;
+        self.registers[address] <<= 1;
+    }
+
+    fn shift_right(&mut self, address: usize) {
+        self.registers[0xF] = self.registers[address] & 0x1;
+        self.registers[address] >>= 1;
+    }
+
+    fn push_subroutine(&mut self, address: usize) {
+        self.pc = address;
+        self.stack.push(address);
+    }
+
+    fn pop_subroutine(&mut self) {
+        match self.stack.pop() {
+            Some(address ) => self.pc = address,
+            None => {}
+        }
+    }
+
     fn register_set(&mut self, address: usize, value: u8) {
         self.registers[address] = value;
     }
 
-    fn register_add(&mut self, address: usize, value: u8) {
-        self.registers[address] += value;
+    fn register_add(&mut self, address: usize, a: u16, b: u16) {
+        let sum = a + b;
+
+        self.registers[0xF] = 0;
+        if sum > 0xFF {
+            self.registers[0xF] = 1;
+        }
+
+        self.registers[address] = sum as u8;
+    }
+
+    fn register_sub(&mut self, address: usize, a: u8, b: u8) {
+        self.registers[0xF] = 0;
+        if a > b {
+            self.registers[0xF] = 1;
+        }
+
+        self.registers[address] = a - b;
     }
 
     fn index_set(&mut self, value: usize) {

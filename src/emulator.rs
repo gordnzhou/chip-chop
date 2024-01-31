@@ -1,16 +1,14 @@
 use sdl2::EventPump;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::{video::Window, Sdl};
+use sdl2::video::Window;
+use sdl2::Sdl;
 
 use std::time::{Duration, Instant};
 use std::thread::sleep;
 
 use crate::components::{Cpu, Display, Keypad, Sound};
-
-// configurable
-const CPU_HZ: u64 = 100;
-const DISPLAY_HZ: u64 = 10;
+use crate::config::{CPU_HZ, DISPLAY_HZ};
 
 pub const WIDTH: usize = 64;
 pub const HEIGHT: usize = 32;
@@ -22,9 +20,10 @@ pub struct Emulator {
 }
 
 impl Emulator {
-    pub fn new(speed: f32, scale: i32) -> Result<Self, String> {
+    pub fn init(speed: f32, scale: i32) -> Result<Self, String> {
         let sdl_context: Sdl = sdl2::init()?;
         let video_subsystem = sdl_context.video()?;
+        let audio_subsystem = sdl_context.audio()?;
         let event_pump = sdl_context.event_pump()?;
 
         let window_width = WIDTH as u32 * scale as u32;
@@ -39,20 +38,19 @@ impl Emulator {
 
         let display: Display = Display::new(window, scale)?;
         let keypad: Keypad = Keypad::new();
-        let sound: Sound = Sound::new();
-        let cpu: Cpu = Cpu::new(display, keypad, sound);
+        let sound: Sound = Sound::new(audio_subsystem);
+        let mut cpu: Cpu = Cpu::new(display, keypad, sound);
+        cpu.init_load();
 
         Ok(Emulator { cpu, speed, event_pump })
-    }
-
-    pub fn init(&mut self) {
-        self.cpu.init_load();
     }
     
     pub fn main_loop(&mut self) {
         let mut last_cpu = Instant::now();
         let mut last_display = Instant::now();
-        let ms: f32 = 1000000.0;
+
+        let cpu_delta_t = 1000000.0 / (CPU_HZ as f32 * self.speed);
+        let display_delta_t = 1000000.0 / (DISPLAY_HZ as f32 * self.speed);
 
         'running: loop {
             for event in self.event_pump.poll_iter() {
@@ -67,13 +65,13 @@ impl Emulator {
             }
 
             // run CPU cycle at CPU_HZ per second
-            if last_cpu.elapsed() >= Duration::from_micros((ms / (CPU_HZ as f32 * self.speed)) as u64) {
+            if last_cpu.elapsed() >= Duration::from_micros(cpu_delta_t as u64) {
                 self.cpu.cycle();
                 last_cpu = Instant::now();
             }
 
             // update timers and display at DISPLAY_HZ per second
-            if last_display.elapsed() >= Duration::from_micros((ms / (DISPLAY_HZ as f32 * self.speed)) as u64) {
+            if last_display.elapsed() >= Duration::from_micros(display_delta_t as u64) {
                 self.cpu.update_timers();
                 self.cpu.display.update_display();
                 last_display = Instant::now();

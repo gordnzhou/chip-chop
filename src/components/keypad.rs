@@ -11,4 +11,8 @@ impl Keypad {
         let pressed: [bool; 16] =  [false; 16];
         Keypad { pressed }
     }
+
+    pub fn is_pressed(&self, key: usize) -> bool {
+        self.pressed[key]
+    }
 }

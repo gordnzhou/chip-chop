@@ -1,18 +1,16 @@
 extern crate sdl2;
+extern crate rand;
 
 mod emulator;
 mod components;
+mod config;
 
 use crate::emulator::Emulator;
-
-// configurable
-const SPEED: f32 = 1.0;
-const SCALE: i32 = 15;
+use crate::config::{SPEED, SCALE};
 
 pub fn main() -> Result<(), String> {
 
-    let mut emulator: Emulator = Emulator::new(SPEED, SCALE)?;
-    emulator.init();
+    let mut emulator: Emulator = Emulator::init(SPEED, SCALE)?;
     emulator.main_loop();
 
     Ok(())
