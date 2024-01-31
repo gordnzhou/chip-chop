@@ -1,5 +1,5 @@
 use sdl2::video::Window;
-use sdl2::Sdl;
+use sdl2::{Sdl, VideoSubsystem};
 
 use std::time::{Duration, Instant};
 use std::thread::sleep;
@@ -21,16 +21,7 @@ impl Emulator {
         let video_subsystem = sdl_context.video()?;
         let audio_subsystem = sdl_context.audio()?;
         let event_pump = sdl_context.event_pump()?;
-
-        let window_width = WIDTH as u32 * scale as u32;
-        let window_height = HEIGHT as u32 * scale as u32;
-        let window: Window = video_subsystem
-            .window("CHIP-8 Emulator", window_width, window_height)
-            .position_centered()
-            .opengl()
-            .build()
-            .map_err(|e| e.to_string())?;
-        println!("Window Width: {}, Window Height: {}", window_width, window_height);
+        let window = Emulator::build_window(video_subsystem, scale as u32)?;
 
         let display: Display = Display::new(window, scale)?;
         let keypad: Keypad = Keypad::new(event_pump);
@@ -39,6 +30,21 @@ impl Emulator {
         cpu.init_load();
 
         Ok(Emulator { cpu, speed })
+    }
+
+    pub fn build_window(video_subsystem: VideoSubsystem, scale: u32) -> Result<Window, String> {
+        let window_width = WIDTH as u32 * scale;
+        let window_height = HEIGHT as u32 * scale;
+
+        let window = video_subsystem
+            .window("CHIP-8 Emulator", window_width, window_height)
+            .position_centered()
+            .opengl()
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        println!("Created window of width {} and height {}", window_width, window_height);
+        Ok(window)
     }
     
     pub fn main_loop(&mut self) {
@@ -55,20 +61,18 @@ impl Emulator {
 
             // run CPU cycle at CPU_HZ per second
             if last_cpu.elapsed() >= Duration::from_micros(cpu_delta_t as u64) {
-                self.cpu.cycle();
                 last_cpu = Instant::now();
+
+                self.cpu.cycle();
             }
 
             // update timers and display at DISPLAY_HZ per second
             if last_display.elapsed() >= Duration::from_micros(display_delta_t as u64) {
-                
-                // TESTING
-                // let result: String = self.cpu.keypad.pressed.iter().map(|&x| if x { "1 "} else {"0 "}).collect();
-                // println!("{}", result);
+                last_display = Instant::now();
 
                 self.cpu.update_timers();
                 self.cpu.display.update_display();
-                last_display = Instant::now();
+                self.cpu.display.render_canvas();
             }
 
             sleep(Duration::from_micros(100));

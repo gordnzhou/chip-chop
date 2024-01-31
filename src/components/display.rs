@@ -41,8 +41,6 @@ impl Display {
                 let _ = self.canvas.fill_rect(Rect::new(x, y, pixel_size, pixel_size));
             }
         }
-
-        self.canvas.present();
     }
 
     pub fn clear(&mut self) {
@@ -55,5 +53,9 @@ impl Display {
 
     pub fn flip_pixel(&mut self, x: usize, y: usize) {
         self.pixels[y % HEIGHT][x % WIDTH] ^= true;
+    }
+
+    pub fn render_(&mut self) {
+        self.canvas.present();
     }
 }

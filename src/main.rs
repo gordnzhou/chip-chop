@@ -9,7 +9,7 @@ use crate::emulator::Emulator;
 use crate::config::{SPEED, SCALE};
 
 pub fn main() -> Result<(), String> {
-
+    
     let mut emulator: Emulator = Emulator::init(SPEED, SCALE)?;
     emulator.main_loop();
 

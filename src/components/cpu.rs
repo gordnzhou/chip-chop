@@ -76,18 +76,20 @@ impl Cpu {
         for (i, byte) in (start..end).zip(FONTS) {
             self.memory[i] = byte;
         }
+
+        println!("Loaded fonts to memory address {:#06x}", FONT_LOAD_START);
     }
 
     fn load_rom(&mut self) {
         match Cpu::read_rom_from_file(ROM_PATH) {
             Ok(rom_data) => {
-                println!("Sucessfully read ROM.");
-                println!("ROM size: {} bytes", rom_data.len());
-                println!("First 16 bytes: {:?}", &rom_data[..16]);
-
                 for i in 0..rom_data.len() {
                     self.memory[ROM_LOAD_START + i] = rom_data[i];
                 }
+
+                println!("Sucessfully read ROM starting at memory address {:#06x}", ROM_LOAD_START);
+                println!("ROM size: {} bytes", rom_data.len());
+                println!("First bytes: {:?}", &rom_data[..16]);
             }
             Err(err) => {
                 eprintln!("Error reading ROM file: {}", err);
@@ -144,13 +146,13 @@ impl Cpu {
         let nn: u8 = (instr & 0x00FF) as u8;
         let nnn: usize = (instr & 0x0FFF) as usize; // used as 12-bit memory address
         
-        println!("Executing opcode ({:#06x}) ", instr);
+        let mut known: bool = true;
         match (instr & 0xF000) >> 12 {
             0x0 => {
                 match nnn {
                     0x0E0 => self.display.clear(),
                     0x0EE => self.pop_subroutine(),
-                    _ => {}
+                    _ => { known = false; }
                 }
             },
             0x1 => self.jump(nnn),
@@ -159,7 +161,7 @@ impl Cpu {
             0x4 => self.skip_if_not_equal(vx, nn),
             0x5 => self.skip_if_equal(vx, vy),
             0x6 => self.register_set(x, nn),
-            0x7 => self.register_set(x, vx + n),
+            0x7 => self.register_set(x, vx.wrapping_add(n)),
             0x8 => {
 
                 match n {
@@ -167,7 +169,7 @@ impl Cpu {
                     0x1 => self.register_set(x, vx | vy),
                     0x2 => self.register_set(x, vx & vy),
                     0x3 => self.register_set(x, vx ^ vy),
-                    0x4 => self.register_add(x, vx as u16, vy as u16),
+                    0x4 => self.register_add(x, vx as u32, vy as u32),
                     0x5 => self.register_sub(x, vx, vy),
                     0x6 => {
                         if USE_NEW {
@@ -182,7 +184,7 @@ impl Cpu {
                         }
                         self.shift_left(x);
                     },
-                    _ => {}
+                    _ => { known = false; }
                 }
             }
             0x9 => self.skip_if_not_equal(vx, vy),
@@ -201,7 +203,7 @@ impl Cpu {
                 match nn {
                     0x9E => self.skip_if_pressed(vx as usize),
                     0xA1 => self.skip_if_not_pressed(vx as usize),
-                    _ => {}
+                    _ => { known = false; }
                 }
             }
             0xf => {
@@ -225,24 +227,90 @@ impl Cpu {
                         }
                         self.load_registers_from_memory(x);
                     },
-                    _ => {}
+                    _ => { known = false; }
                 }
             }
-            _ => {}
+            _ => { known = false; }
+        }
+
+        if !known {
+            println!("Unknown Command! {:#06x}", instr)
         }
     }
 
-    fn jump(&mut self, address: usize) {
-        self.pc = address;
+    fn draw(&mut self, x: usize, y: usize, height: u8) {
+        let x_coord = self.registers[x] as usize;
+        let y_coord = self.registers[y] as usize;
+
+        println!("Drawing sprite at I ({:#04x}) of height {} at coords ({}, {})", self.i, height, x_coord, y_coord);
+
+        self.registers[0xF] = 0;
+
+        for row in 0..height as usize {
+            let sprite = self.memory[self.i + row];
+
+            for col in 0..8 as usize {
+                let x = x_coord + col;
+                let y = y_coord + row;
+
+                if (sprite & (1 << (7 - col))) > 0 {
+                    self.display.flip_pixel(x, y);
+                    if !self.display.get_pixel(x, y) {
+                        self.registers[0xF] = 1;
+                    }
+                }
+            }
+        }
+    }
+
+    fn wait_for_key(&mut self, address: usize) {
+        println!("Waiting for key...");
+
+        for i in 0..0xF {
+            if self.keypad.is_pressed(i) {
+                self.registers[address] = i as u8;
+                return
+            }
+        }
+        
+        self.pc -= 2;
+    }
+
+    fn register_add(&mut self, address: usize, a: u32, b: u32) {
+        println!("adding {} to {} and setting it to register V{:01x}", a, b, address);
+
+        let sum = a + b;
+
+        self.registers[0xF] = 0;
+        if sum > 0xFF {
+            self.registers[0xF] = 1;
+        }
+
+        self.registers[address] = sum as u8;
+    }
+
+    fn register_sub(&mut self, address: usize, a: u8, b: u8) {
+        println!("subtract {} from {} and setting it to register V{:01x}", a, b, address);
+
+        self.registers[0xF] = 0;
+        if a > b {
+            self.registers[0xF] = 1;
+        }
+
+        self.registers[address] = a.wrapping_sub(b);
     }
 
     fn load_memory_from_registers(&mut self, end: usize) {
+        println!("Loading registers to memory starting at {}", self.i);
+
         for reg_index in 0..=end {
             self.memory[self.i + reg_index] = self.registers[reg_index];
         }
     }
     
     fn load_registers_from_memory(&mut self, end: usize) {
+        println!("Loading memory starting at {} to addresses", self.i);
+
         for reg_index in 0..=end {
             self.registers[reg_index] = self.memory[self.i + reg_index];
         }
@@ -254,33 +322,13 @@ impl Cpu {
         self.memory[self.i + 2] = value % 10;
     }
 
-    fn wait_for_key(&mut self, address: usize) {
-        for i in 0..0xF {
-            if self.keypad.is_pressed(i) {
-                self.registers[address] = i as u8;
-                return
-            }
-        }
-        
-        self.pc -= 2;
-    }
-
     fn set_random(&mut self, address: usize, value: u8) {
+        println!("Setting register V{:01x} to random", address);
+
         let mut rng = rand::thread_rng();
         let r = rng.gen_range(0..=value);
 
         self.registers[address] = value & r;
-    }
-
-    fn set_delay_timer(&mut self, value: u8) {
-        self.delay_timer = value;
-    }
-
-    fn set_sound_timer(&mut self, value: u8) {
-        if value > 0 {
-            self.sound.start_sound();
-        }
-        self.sound_timer = value;
     }
 
     fn skip_if_equal(&mut self, a: u8, b: u8) {
@@ -308,78 +356,58 @@ impl Cpu {
     }
 
     fn shift_left(&mut self, address: usize) {
+        println!("Left shift of {} in (register V{:01x})", self.registers[address], address);
         self.registers[0xF] = self.registers[address] & 0x80;
         self.registers[address] <<= 1;
     }
 
     fn shift_right(&mut self, address: usize) {
+        println!("Right shift of {} (register V{:01x})", self.registers[address], address);
         self.registers[0xF] = self.registers[address] & 0x1;
         self.registers[address] >>= 1;
     }
 
     fn push_subroutine(&mut self, address: usize) {
-        self.pc = address;
-        self.stack.push(address);
+        println!("Pushing address {} to stack", address);
+        self.stack.push(self.pc);
+        self.pc = address
     }
 
     fn pop_subroutine(&mut self) {
         match self.stack.pop() {
-            Some(address ) => self.pc = address,
+            Some(address ) => {
+                println!("Popped address {} from stack", address);
+                self.pc = address;
+            }
             None => {}
         }
     }
 
+    fn jump(&mut self, address: usize) {
+        println!("Jumping to address {} in memory", address);
+        self.pc = address;
+    }
+
     fn register_set(&mut self, address: usize, value: u8) {
+        println!("Setting register V{:01x} to {}", address, value);
         self.registers[address] = value;
     }
 
-    fn register_add(&mut self, address: usize, a: u16, b: u16) {
-        let sum = a + b;
-
-        self.registers[0xF] = 0;
-        if sum > 0xFF {
-            self.registers[0xF] = 1;
-        }
-
-        self.registers[address] = sum as u8;
+    fn index_set(&mut self, address: usize) {
+        println!("Setting index register to address {}", address);
+        self.i = address;
     }
 
-    fn register_sub(&mut self, address: usize, a: u8, b: u8) {
-        self.registers[0xF] = 0;
-        if a > b {
-            self.registers[0xF] = 1;
-        }
-
-        self.registers[address] = a - b;
+    fn set_delay_timer(&mut self, value: u8) {
+        println!("Setting delay timer to {:#04x}", value);
+        self.delay_timer = value;
     }
 
-    fn index_set(&mut self, value: usize) {
-        self.i = value;
-    }
-
-    fn draw(&mut self, x: usize, y: usize, height: u8) {
-
-        let x_coord = self.registers[x] as usize;
-        let y_coord = self.registers[y] as usize;
-
-        self.registers[0xF] = 0;
-
-        println!("Drawing sprite at I ({:#04x}) of height {} at coords ({}, {})", self.i, height, x_coord, y_coord);
-
-        for row in 0..height as usize {
-            let sprite = self.memory[self.i + row];
-
-            for col in 0..8 as usize {
-                let x = x_coord + col;
-                let y = y_coord + row;
-
-                if (sprite & (1 << (7 - col))) > 0 {
-                    self.display.flip_pixel(x, y);
-                    if !self.display.get_pixel(x, y) {
-                        self.registers[0xF] = 1;
-                    }
-                }
-            }
+    fn set_sound_timer(&mut self, value: u8) {
+        println!("Setting sound timer to {:#04x}", value);
+        if value > 0 {
+            self.sound.start_sound();
         }
+        self.sound_timer = value;
     }
 }  
