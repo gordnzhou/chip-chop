@@ -161,7 +161,7 @@ impl Cpu {
             0x4 => self.skip_if_not_equal(vx, nn),
             0x5 => self.skip_if_equal(vx, vy),
             0x6 => self.register_set(x, nn),
-            0x7 => self.register_set(x, vx.wrapping_add(n)),
+            0x7 => self.register_set(x, vx.wrapping_add(nn)),
             0x8 => {
 
                 match n {

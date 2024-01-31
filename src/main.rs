@@ -48,10 +48,14 @@ fn list_rom_files() -> Result<Vec<String>, io::Error> {
 }
 
 fn select_file(files: &[String]) -> Option<String> {
-    println!("Enter the number of the ROM you want to select:");
+    println!("Enter the number of the ROM you want to select (or type 'esc' to quit):");
 
     let mut input = String::new();
     io::stdin().read_line(&mut input).expect("Failed to read line");
+
+    if input.trim().to_lowercase() == "esc" {
+        return Some(String::from(""))
+    }
 
     match input.trim().parse::<usize>() {
         Ok(index) if index > 0 && index <= files.len() => {
@@ -81,6 +85,9 @@ pub fn main() -> Result<(), String> {
                 Ok(files) => {
                     match select_file(&files) {
                         Some(selected) => {
+                            if selected.is_empty() {
+                                break 'main;
+                            }
                             rom_path.push('/');
                             rom_path.push_str(&*selected);
                         },
