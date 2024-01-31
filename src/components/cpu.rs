@@ -30,7 +30,7 @@ const FONTS: [u8; 80] = [
 
 pub struct Cpu {
     pub display: Display,
-    keypad: Keypad,
+    pub keypad: Keypad,
     sound: Sound,
     memory: [u8; MEMORY_SIZE],
     registers: [u8; REGISTERS_SIZE],
@@ -143,11 +143,8 @@ impl Cpu {
         let n: u8 = (instr & 0x000F) as u8;
         let nn: u8 = (instr & 0x00FF) as u8;
         let nnn: usize = (instr & 0x0FFF) as usize; // used as 12-bit memory address
-
-        if instr != 0 {
-            println!("Instruction: {:04x}, Type: {:01x}", instr, (instr & 0xF000) >> 12);
-        }
         
+        println!("Executing opcode ({:#06x}) ", instr);
         match (instr & 0xF000) >> 12 {
             0x0 => {
                 match nnn {
@@ -280,6 +277,9 @@ impl Cpu {
     }
 
     fn set_sound_timer(&mut self, value: u8) {
+        if value > 0 {
+            self.sound.start_sound();
+        }
         self.sound_timer = value;
     }
 

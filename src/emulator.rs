@@ -1,6 +1,3 @@
-use sdl2::EventPump;
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
 use sdl2::video::Window;
 use sdl2::Sdl;
 
@@ -16,7 +13,6 @@ pub const HEIGHT: usize = 32;
 pub struct Emulator {
     cpu: Cpu,
     speed: f32,
-    event_pump: EventPump,
 }
 
 impl Emulator {
@@ -37,12 +33,12 @@ impl Emulator {
         println!("Window Width: {}, Window Height: {}", window_width, window_height);
 
         let display: Display = Display::new(window, scale)?;
-        let keypad: Keypad = Keypad::new();
+        let keypad: Keypad = Keypad::new(event_pump);
         let sound: Sound = Sound::new(audio_subsystem);
         let mut cpu: Cpu = Cpu::new(display, keypad, sound);
         cpu.init_load();
 
-        Ok(Emulator { cpu, speed, event_pump })
+        Ok(Emulator { cpu, speed })
     }
     
     pub fn main_loop(&mut self) {
@@ -52,16 +48,9 @@ impl Emulator {
         let cpu_delta_t = 1000000.0 / (CPU_HZ as f32 * self.speed);
         let display_delta_t = 1000000.0 / (DISPLAY_HZ as f32 * self.speed);
 
-        'running: loop {
-            for event in self.event_pump.poll_iter() {
-                match event {
-                    Event::Quit { .. } 
-                    | Event::KeyDown {
-                        keycode: Some(Keycode::Escape),
-                        ..
-                    } => break 'running,
-                    _ => {}
-                }
+        loop {
+            if !self.cpu.keypad.check_inputs() {
+                break;
             }
 
             // run CPU cycle at CPU_HZ per second
@@ -72,6 +61,11 @@ impl Emulator {
 
             // update timers and display at DISPLAY_HZ per second
             if last_display.elapsed() >= Duration::from_micros(display_delta_t as u64) {
+                
+                // TESTING
+                // let result: String = self.cpu.keypad.pressed.iter().map(|&x| if x { "1 "} else {"0 "}).collect();
+                // println!("{}", result);
+
                 self.cpu.update_timers();
                 self.cpu.display.update_display();
                 last_display = Instant::now();
